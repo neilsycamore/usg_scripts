@@ -91,7 +91,7 @@ def split_asset_groups_and_update(split_asset_groups_hash,user,rt_ticket)
         # remove the assets from the old order
         puts "remove the assets from the old order"
         old_order = orders.first
-        old_order.submitted_assets.where(asset: assets).map(&:delete) unless 
+        old_order.submitted_assets.where(asset: assets).map(&:delete) 
         old_order.save(validate:false)
       
         # create new order!
