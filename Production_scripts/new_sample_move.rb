@@ -33,7 +33,7 @@ def find_asset_groups(sample_names)
     asset_groups = sample.asset_groups
     if !asset_groups.empty?
       asset_groups.each do |ag|
-        hash[ag.name] << sample_name
+        hash[ag.name] << sample_name if !Order.find_by(asset_group_id: ag.id).nil?
       end
     end
   end; nil
@@ -45,14 +45,15 @@ def find_whole_and_split_asset_groups(asset_group_sample_hash,sample_names)
   whole_asset_groups=[]
   split_asset_groups_hash = Hash.new{|hsh,key| hsh[key] = [] }
   asset_group_sample_hash.each do |ag_name,samples|
+    # puts "ag => #{ag_name}"
     asset_group = AssetGroup.find_by(name: ag_name)
     order = Order.find_by(asset_group_id: asset_group.id)
     aliquot_count = asset_group.assets.map(&:aliquots).flatten.size
     if  aliquot_count == samples.size
       puts "#{order.study_id} #{order.submission_id} #{order.submission.orders.size} #{ag_name} - #{aliquot_count}/#{samples.size} :: All assets to be moved"
       whole_asset_groups << asset_group
-      # sample_move
-    else
+      # if assetgroup asset == MultiplexedLibraryTube then only the aliquots can be updated
+    elsif asset_group.assets.first.labware.is_a?(MultiplexedLibraryTube) == false
       puts "#{order.study_id} #{order.submission_id} #{order.submission.orders.size} #{ag_name} - #{aliquot_count}/#{samples.size} :: Not all assets to be moved - split"
       to_remove = sample_names & asset_group.assets.map(&:aliquots).flatten.map(&:sample).map(&:name)
       to_remove.map(&split_asset_groups_hash[asset_group].method(:<<))
@@ -61,41 +62,55 @@ def find_whole_and_split_asset_groups(asset_group_sample_hash,sample_names)
   return whole_asset_groups, split_asset_groups_hash
 end
 
+def gen_uniq_name(ag,rt_ticket)
+  c=1; test_name = false
+  until test_name == true
+    new_name = ag.name+"_RT#{rt_ticket}_#{c}"
+    test_name =  AssetGroup.find_by(name: new_name).nil?
+    c +=1
+  end
+  return new_name
+end
+
 def split_asset_groups_and_update(split_asset_groups_hash,user,rt_ticket)
   new_orders =[]
   split_asset_groups_hash.each do |ag,to_remove|
-    new_name = ag.name+"_#{rt_ticket}"
-    puts "#{ag.name} => #{new_name}"
-    ag_new = AssetGroup.create!(name: new_name, user_id: user.id, study: @study_to)
     orders = Order.where(asset_group_id: ag.id).select {|o| o.submission.state == "ready"}
-    # assumption is that above will return 1 order with a state of 'ready' if it doesn't then the logic is flawed and we need to bale out
-    if orders.size > 1
-      raise "More than one order of state READY found... time to tweak the code!"
+    if orders.empty?
+      puts "#{ag.name} not used in a submission"
     else
-      assets = ag.assets.select {|a| to_remove.include?(a.aliquots.first.sample.name)}
+      new_name = gen_uniq_name(ag,rt_ticket)
+      puts "#{ag.name} => #{new_name}"
+      ag_new = AssetGroup.create!(name: new_name, user_id: user.id, study: @study_to)
+      # assumption is that above will return 1 order with a state of 'ready' if it doesn't then the logic is flawed and we need to bale out
+      if orders.size > 1
+        raise "More than one order of state READY found... time to tweak the code!"
+      else 
+        assets = ag.assets.select {|a| to_remove.include?(a.aliquots.first.sample.name)}
       
-      # remove the assets from the old order
-      puts "remove the assets from the old order"
-      old_order = orders.first
-      old_order.submitted_assets.where(asset: assets).map(&:delete)
-      old_order.save(validate:false)
+        # remove the assets from the old order
+        puts "remove the assets from the old order"
+        old_order = orders.first
+        old_order.submitted_assets.where(asset: assets).map(&:delete) unless 
+        old_order.save(validate:false)
       
-      # create new order!
-      puts "create new order!"
-      new_order = old_order.dup
-      new_order.update_attributes!(study: @study_to, user_id: user.id, asset_group_id: ag_new.id, asset_group_name: ag_new.name)
+        # create new order!
+        puts "create new order!"
+        new_order = old_order.dup
+        new_order.update_attributes!(study: @study_to, user_id: user.id, asset_group_id: ag_new.id, asset_group_name: ag_new.name)
       
-      # add the assets to the new order and asset group
-      puts "add the assets to the new order and asset group"
-      assets.each {|asset| new_order.submitted_assets.create!(:asset => asset)}
-      new_order.save!
-      new_orders << new_order
-      ag.asset_group_assets.where(asset: assets).map(&:delete)
-      ag.save!
-      ag_new.assets << assets
-      ag_new.save!
-      puts "old #{ag.name} : #{ag.assets.map(&:aliquots).flatten.size}"
-      puts "new #{ag_new.name} : #{ag_new.assets.map(&:aliquots).flatten.size}"
+        # add the assets to the new order and asset group
+        puts "add the assets to the new order and asset group"
+        assets.each {|asset| new_order.submitted_assets.create!(:asset => asset)}
+        new_order.save!
+        new_orders << new_order
+        ag.asset_group_assets.where(asset: assets).map(&:delete)
+        ag.save!
+        ag_new.assets << assets
+        ag_new.save!
+        puts "old #{ag.name} : #{ag.assets.map(&:aliquots).flatten.size}"
+        puts "new #{ag_new.name} : #{ag_new.assets.map(&:aliquots).flatten.size}"
+      end
     end
   end
   puts "Created..."
@@ -133,9 +148,11 @@ end
 def new_move_samples(sample_names,study_from_id,study_to_id,user_login,rt_ticket,mode)
   ActiveRecord::Base.transaction do 
     fluidigm_plates = []; lane_ids = []; pb_tube_ids = []; movable_classes = ['Well','SampleTube','LibraryTube']
-    user = User.find_by_login(user_login) or raise StandardError, "Cannot find the user #{user_login.inspect}"
+    user = User.find_by_login(user_login) or raise "Cannot find the user #{user_login.inspect}"
     @study_to = Study.find(study_to_id)
-  
+    Study.find(study_from_id) or raise "Unable to find study_from #{study_from_id}"
+    test_sample = Sample.find_by(name: sample_names.first) or raise "Uanble to find first sample #{sample_names.first}"
+    raise "test sample #{test_sample} is not associated with study #{study_from_id}" if StudySample.where(sample_id: test_sample.id).where(study_id: study_from_id).empty?
     asset_group_sample_hash = find_asset_groups(sample_names)
     whole_asset_groups, split_asset_groups_hash = find_whole_and_split_asset_groups(asset_group_sample_hash,sample_names)
     update_whole_asset_groups(whole_asset_groups)
@@ -143,9 +160,9 @@ def new_move_samples(sample_names,study_from_id,study_to_id,user_login,rt_ticket
     split_asset_groups_and_update(split_asset_groups_hash,user,rt_ticket)
   
     sample_names.each do |sample_name|
-      sample = Sample.find_by_name(sample_name)
+      sample = Sample.find_by(name: sample_name) or raise "Cannot find the sample #{sample_name}"
       comment_text = "Sample #{sample.id} moved from #{study_from_id} to #{study_to_id} requested via RT ticket #{rt_ticket} using new_sample_move.rb"
-      comment_on = lambda { |x| x.comments.create!(:description => comment_text, :user_id => user.id, :title => "Sample move #{rt_ticket}") }
+      comment_on = lambda { |x| x.comments.create!(:description => comment_text, :user_id => user.id, :title => "Adjustment #{rt_ticket}") }
 
       puts "Moving sample #{sample.id} #{sample.name}"
       [sample].map(&comment_on)
