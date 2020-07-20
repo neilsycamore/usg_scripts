@@ -64,7 +64,7 @@ def get_week_data(week_begin)
       end
       nbc = range_negative_barcodes.difference(pbc.uniq).size; nil # nbc Negative Barcode Count
     else
-      nbc = 'NP'
+      nbc = 'None'
     end   
     $centre_date_hash[centre_name][week_begin] << [nbc,pbc.compact.uniq.size,sc.size]
   end
@@ -74,7 +74,13 @@ def get_row(d)
   line = ""
   $centre_abr.each do |k,v|
     nbc,pbc,sc = $centre_date_hash[k][d][0]
-    line = line+"\t\t"+nbc.to_s+" "+pbc.to_s+" "+sc.to_s
+    # Add av no. samples/plate
+    if pbc == 0
+      av = 0
+    else
+      av = (sc/pbc.to_f).round(2)
+    end
+    line = line+"\t\t"+nbc.to_s+" "+pbc.to_s+" "+sc.to_s+" "+av.to_s
   end
   return "#{d}#{line}"
 end
@@ -87,7 +93,7 @@ def build_header()
   $centre_abr.each do |k,abr|
     header = "#{header}"+"\t\t"+abr if i==0
     header = "#{header}"+"\t\t\t"+abr if i > 0
-    sub_header = sub_header+"\t\t"+"-Pc +Pc Sc"
+    sub_header = sub_header+"\t\t"+"-Pc +Pc Sc S/P"
     i +=1
   end
   return header, sub_header
@@ -129,5 +135,3 @@ def build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_
   end
   print_out_data
 end
-
-build_data_for_weeks_previous(8, 'pos_samples_130720', 'neg_plate_barcodes_130720')
