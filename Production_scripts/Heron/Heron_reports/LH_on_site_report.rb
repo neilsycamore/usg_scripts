@@ -77,6 +77,7 @@ def get_row(d)
     # Add av no. samples/plate
     if pbc == 0
       av = 0
+      pbc = 'None'
     else
       av = (sc/pbc.to_f).round(2)
     end
