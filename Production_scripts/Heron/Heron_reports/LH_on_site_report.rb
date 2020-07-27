@@ -83,7 +83,7 @@ def get_row(d)
     end
     line = line+"\t\t"+nbc.to_s+" "+pbc.to_s+" "+sc.to_s+" "+av.to_s
   end
-  return "#{d}#{line}"
+  return "#{d.strftime('%d/%m/%Y')}#{line}"
 end
 
 def build_header()
