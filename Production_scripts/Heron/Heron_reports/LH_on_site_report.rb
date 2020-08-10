@@ -146,7 +146,7 @@ def print_out_data(output_filename)
   end; nil
 end
 
-def test_build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_file,output_filename)
+def build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_file,output_filename)
   data = get_file(positive_samples_file)
   data.shift # remove header
   build_negative_hash(negative_barcode_file)
