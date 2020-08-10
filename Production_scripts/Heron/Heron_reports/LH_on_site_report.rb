@@ -3,6 +3,12 @@ def get_file(filename)
   return data
 end
 
+def write_to_named_file(line,output_filename)
+  CSV.open("/var/tmp/Heron_tmp/Files/#{output_filename}.csv", "a+") do |csv|
+    csv << line
+  end
+end
+
 def build_hash(data)
   $ap_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $gla_hash = Hash.new{|hsh,key| hsh[key] = [] }
@@ -10,10 +16,10 @@ def build_hash(data)
   $cb_hash = Hash.new{|hsh,key| hsh[key] = [] }
   
   $centre_hash = {'Alderley' => $ap_hash,
-                 'UK Biocentre' => $mk_hash,
-                 'Queen Elizabeth University Hospital' => $gla_hash,
-                 'Cambridge-az' => $cb_hash
-               }
+                  'Cambridge-az' => $cb_hash,
+                  'Queen Elizabeth University Hospital' => $gla_hash,
+                  'UK Biocentre' => $mk_hash
+                  }
   
   data.each do |centre, barcode, sample_id, result, dtime|
     # puts "#{centre},#{barcode},#{sample_id},#{result},#{dtime}"
@@ -29,10 +35,10 @@ def build_negative_hash(filename)
   $cb_neg_hash = Hash.new{|hsh,key| hsh[key] = [] }
   
   $centre_neg_hash = {'Alderley' => $ap_neg_hash,
-                 'UK Biocentre' => $mk_neg_hash,
-                 'Queen Elizabeth University Hospital' => $gla_neg_hash,
-                 'Cambridge-az' => $cb_neg_hash
-               }
+                      'Cambridge-az' => $cb_neg_hash,
+                      'Queen Elizabeth University Hospital' => $gla_neg_hash,
+                      'UK Biocentre' => $mk_neg_hash
+                      }
   negative_plates = get_file(filename) #centre,barcode,date_tested
   negative_plates.pop # the last line of the file is centre,barcode,date_tested.. not sure why yet
   negative_plates.each do |centre,barcode,dtime|
@@ -72,8 +78,17 @@ end
 
 def get_row(d)
   line = ""
+  csv_data = [d]
+  sum_nbc=0;sum_pbc=0;sum_sc=0
   $centre_abr.each do |k,v|
     nbc,pbc,sc = $centre_date_hash[k][d][0]
+    if nbc == 'None'
+      sum_nbc += 0
+    else
+      sum_nbc += nbc
+    end
+    sum_pbc += pbc
+    sum_sc += sc
     # Add av no. samples/plate
     if pbc == 0
       av = 0
@@ -81,36 +96,57 @@ def get_row(d)
     else
       av = (sc/pbc.to_f).round(2)
     end
+    [nbc,pbc,sc,av].each {|e| csv_data << e}
     line = line+"\t\t"+nbc.to_s+" "+pbc.to_s+" "+sc.to_s+" "+av.to_s
   end
-  return "#{d.strftime('%d/%m/%Y')}#{line}"
+  
+  if sum_pbc == 0
+    sum_av = 0
+  else
+    sum_av = (sum_sc/sum_pbc.to_f).round(2)
+  end
+  [sum_nbc,sum_pbc,sum_sc,sum_av].each {|e| csv_data << e}
+  line = line+"\t"+sum_nbc.to_s+" "+sum_pbc.to_s+" "+sum_sc.to_s+" "+sum_av.to_s
+  
+  return "#{d.strftime('%d/%m/%Y')}#{line}", csv_data
 end
 
 def build_header()
-  $centre_abr = {'Alderley' => 'AP', 'UK Biocentre' => 'MK', 'Queen Elizabeth University Hospital' => 'GW', 'Cambridge-az' => 'CB'}
-  header = "Week\t"
-  sub_header = "\t"
+  $centre_abr = {'Alderley' => 'AP', 'Cambridge-az' => 'CB', 'Queen Elizabeth University Hospital' => 'GW', 'UK Biocentre' => 'MK'}
+  header = "\t"; sub_header = "Week\t"
+  csv_header = [nil]; csv_sub_header = [nil]
+  labels = ['neg plates','pos plates','samples','avg']
+  $centre_abr.keys.each do |k|
+    csv_header << k
+    3.times {csv_header << nil}
+  end
+  csv_header << 'All sites'
   i=0
   $centre_abr.each do |k,abr|
     header = "#{header}"+"\t\t"+abr if i==0
     header = "#{header}"+"\t\t\t"+abr if i > 0
     sub_header = sub_header+"\t\t"+"-Pc +Pc Sc S/P"
+    labels.each {|e| csv_sub_header << e}
     i +=1
   end
-  return header, sub_header
+  labels.each {|e| csv_sub_header << e}
+  return header, sub_header, csv_header, csv_sub_header
 end
 
-def print_out_data()
-  header, sub_header = build_header()
+def print_out_data(output_filename)
+  header, sub_header, csv_header, csv_sub_header = build_header()
   puts header
+  write_to_named_file(csv_header,output_filename)
   puts sub_header
+  write_to_named_file(csv_sub_header,output_filename)
   @dates.each do |d|
-    row = get_row(d)
+    row, csv_row = get_row(d)
     puts row
+    write_to_named_file(csv_row,output_filename)
   end; nil
 end
 
-def build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_file)
+def test_build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_file,output_filename)
   data = get_file(positive_samples_file)
   data.shift # remove header
   build_negative_hash(negative_barcode_file)
@@ -134,5 +170,5 @@ def build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_
     get_week_data(week_begin)
     c -=1
   end
-  print_out_data
+  print_out_data(output_filename)
 end
