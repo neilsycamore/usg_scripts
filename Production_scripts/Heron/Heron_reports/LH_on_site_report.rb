@@ -114,7 +114,7 @@ end
 def build_header()
   $centre_abr = {'Alderley' => 'AP', 'Cambridge-az' => 'CB', 'Queen Elizabeth University Hospital' => 'GW', 'UK Biocentre' => 'MK'}
   header = "\t"; sub_header = "Week\t"
-  csv_header = [nil]; csv_sub_header = [nil]
+  csv_header = [nil]; csv_sub_header = ["Week beginning"]
   labels = ['neg plates','pos plates','samples','avg']
   $centre_abr.keys.each do |k|
     csv_header << k
@@ -146,7 +146,7 @@ def print_out_data(output_filename)
   end; nil
 end
 
-def build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_file,output_filename)
+def build_data_for_weeks_previous(number_of_weeks,positive_samples_file,negative_barcode_file,output_filename)
   data = get_file(positive_samples_file)
   data.shift # remove header
   build_negative_hash(negative_barcode_file)
@@ -162,13 +162,13 @@ def build_data_for_weeks_previous(number,positive_samples_file,negative_barcode_
                  'Cambridge-az' => $cb_date_hash
                 }
   @dates=[]
-  c=number-1
-  while c > -1
+  c=0
+  until c == number_of_weeks
     week_begin = Date.today.weeks_ago(c).beginning_of_week(:monday)
     # puts week_begin
     @dates << week_begin
     get_week_data(week_begin)
-    c -=1
+    c +=1
   end
   print_out_data(output_filename)
 end
