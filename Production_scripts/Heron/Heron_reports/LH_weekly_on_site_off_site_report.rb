@@ -64,13 +64,13 @@ def build_pos_hashes()
   @pos_data.each do |centre, barcode, sample_id, result, dtime|
     print "\r#{c}"
     tested_date = dtime.to_date.strftime('%d/%m/%Y')
-    $centre_offsite_hash[centre][tested_date] << [barcode,sample_id] # store offsite tested at date
-    date = $on_site_hash[barcode] # scanned in date
-    if date.nil?
+    $centre_offsite_hash[centre][tested_date] << [barcode,sample_id] # store offsite 'tested at' date
+    scanned_in_date = $on_site_hash[barcode] # scanned in date
+    if scanned_in_date.nil?
       c -=1
       next
     else
-      $centre_pos_hash[centre][date] << [barcode,sample_id] # store on site data by scanned in date
+      $centre_pos_hash[centre][scanned_in_date] << [barcode,sample_id] # store on site data by scanned in date
       c -=1
     end
   end; nil
@@ -92,12 +92,12 @@ def build_neg_hash()
   c = @neg_data.size
   @neg_data.each do |centre,barcode,dtime|
     print "\r#{c}"
-    date = $on_site_hash[barcode] # scanned in date
-    if date.nil?
+    scanned_in_date = $on_site_hash[barcode] # scanned in date
+    if scanned_in_date.nil?
       c -=1
       next
     else
-      $centre_neg_hash[centre][date] << barcode # store on site barcodes that contain a negative sample by scanned in date
+      $centre_neg_hash[centre][scanned_in_date] << barcode # store on site barcodes that contain a negative sample by scanned in date
       c -=1
     end
   end; nil
@@ -107,46 +107,63 @@ def get_week_data(week_begin)
   $centre_pos_hash.each do |centre_name,hash|
     range = week_begin..week_begin+6
     pbc=[];os_bc=[] # pbc Positive Barcode Count; os_bc Offsite barcode Count
-    hash.each do |k,values|
-      if range.cover?(k.to_date)
-        values.each do |b,s|
-          pbc << b # 1:1 barcode to sample therefore only need to record barcode (total count = sample count, uniq count = barcode count)
+    hash.each do |scanned_in_date,values|
+      if range.cover?(scanned_in_date.to_date)
+        values.each do |barcode,sample|
+          pbc << barcode # 1:1 barcode to sample therefore only need to record barcode (total count = sample count, uniq count = barcode count)
         end
       end
     end
-    $centre_offsite_hash[centre_name].each do |k,values|
-      if range.cover?(k.to_date)
-        values.each do |b,s|
-          os_bc << b
+    $centre_offsite_hash[centre_name].each do |tested_date,values|
+      if range.cover?(tested_date.to_date)
+        values.each do |barcode,sample|
+          os_bc << barcode
         end
       end
     end
     negative_dates = []
-    $centre_neg_hash[centre_name].each do |d,stuff|
-      negative_dates << d if range.cover?(d.to_date)
+    $centre_neg_hash[centre_name].each do |scanned_in_date,stuff|
+      negative_dates << scanned_in_date if range.cover?(scanned_in_date.to_date)
     end
     if negative_dates.present?
       range_negative_barcodes = []
-      negative_dates.each do |date|
-        $centre_neg_hash[centre_name][date].each {|b| range_negative_barcodes << b}
+      negative_dates.each do |scanned_in_date|
+        $centre_neg_hash[centre_name][scanned_in_date].each {|b| range_negative_barcodes << b}
       end
       # nbc = range_negative_barcodes.uniq.difference(pbc.uniq).size; nil # nbc Negative Barcode Count # .difference doesn't work on labw-prod
       negative_barcodes = range_negative_barcodes.reject{|x| pbc.uniq.include? x}; nil
-      nbc = negative_barcodes.size
+      negative_plate_count = negative_barcodes.size
     else
-      nbc = 'None'
-    end   
-    $centre_date_hash[centre_name][week_begin.strftime('%d/%m/%Y')] << [nbc,pbc.compact.uniq.size,pbc.compact.size,os_bc.compact.uniq.size,os_bc.compact.size]
+      negative_plate_count = 'None'
+    end
+    positive_plate_count  = pbc.compact.uniq.size
+    positive_sample_count = pbc.compact.size
+    off_site_positive_plate_count  = os_bc.compact.uniq.size
+    off_site_positive_sample_count = os_bc.compact.size
+    $centre_date_hash[centre_name][week_begin.strftime('%d/%m/%Y')] << [negative_plate_count,positive_plate_count,positive_sample_count,off_site_positive_plate_count,off_site_positive_sample_count]
   end
 end
 
-def get_row(d)
+def get_row(date)
+  # Glossary:
+  # nbc => negative barcode count
+  # pbc => positive barcode count
+  # sc => sample count
+  # os_bc => offsite barcode count
+  # os_sc => offsite sample count
+  # sum_nbc => summation of negative barcode count
+  # sum_pbc => summation of positive barcode count
+  # sum_sc => summation of sample count
+  # sum_os_bc => summation of offsite barcode count
+  # sum_os_sc => summation of offsite sample count
+  # av = average positive sample per onsite plate
+  # os_av = average positive sample per offsite plate
   line = ""
-  csv_data = [d]
-  sum_nbc=sum_pbc=sum_sc=sum_os_bc=sum_os_sc=0
-  $centre_abr.each do |k,v|
-    nbc,pbc,sc,os_bc,os_sc = $centre_date_hash[k][d][0]
-    if nbc == 'None' #|| nbc.nil?
+  csv_data = [date]
+  sum_nbc=sum_pbc=sum_sc=sum_os_bc=sum_os_sc=0 # initialise counts
+  $centre_abr.each do |centre,abr|
+    nbc,pbc,sc,os_bc,os_sc = $centre_date_hash[centre][date][0]
+    if nbc == 'None'
       sum_nbc += 0
     else
       sum_nbc += nbc
@@ -162,7 +179,7 @@ def get_row(d)
     else
       av = (sc/pbc.to_f).round(2)
     end
-    if os_bc == 0 #|| os_bc.nil?
+    if os_bc == 0
       os_av = 0
     else
       os_av = (os_sc/os_bc.to_f).round(2)
@@ -183,7 +200,7 @@ def get_row(d)
   [sum_nbc,sum_pbc,sum_sc,sum_av,sum_os_sc,sum_os_av].each {|e| csv_data << e}
   line = line+"\t"+sum_nbc.to_s+" "+sum_pbc.to_s+" "+sum_sc.to_s+" "+sum_av.to_s+" "+sum_os_sc.to_s+" "+sum_os_av.to_s
   
-  return "#{d}#{line}", csv_data
+  return "#{date}#{line}", csv_data
 end
 
 def build_header()
@@ -191,16 +208,16 @@ def build_header()
   header = "\t"; sub_header = "Week number\tWeek\t"
   csv_header = [nil,nil]; csv_sub_header = ["Week number","Week beginning"]
   labels = ['neg plates','pos plates','samples','avg','samples tested','avg samples tested']
-  $centre_abr.keys.each do |k|
-    csv_header << k
+  $centre_abr.keys.each do |centre_name|
+    csv_header << centre_name
     5.times {csv_header << nil}
   end
   csv_header << 'All sites'
   i=0
-  $centre_abr.each do |k,abr|
+  $centre_abr.each do |centre_name,abr|
     header = "#{header}"+"\t\t"+abr if i==0
     header = "#{header}"+"\t\t\t"+abr if i > 0
-    sub_header = sub_header+"\t\t"+"-Pc +Pc Sc S/P"
+    sub_header = sub_header+"\t\t"+"-Pc +Pc Sc Sav OSc OSav"
     labels.each {|e| csv_sub_header << e}
     i +=1
   end
@@ -208,9 +225,9 @@ def build_header()
   return header, sub_header, csv_header, csv_sub_header
 end
 
-def find_weeks_from_week_zero(d)
+def find_weeks_from_week_zero(date)
   week_zero = '20/07/2020'.to_date
-  week_count = (d.to_date-week_zero).to_i/7
+  week_count = (date.to_date-week_zero).to_i/7
   return week_count
 end
 
@@ -220,9 +237,9 @@ def print_out_data(output_filename)
   write_to_named_file(csv_header,output_filename)
   puts sub_header
   write_to_named_file(csv_sub_header,output_filename)
-  @dates.each do |d|
-    row, csv_row = get_row(d)
-    week_count = find_weeks_from_week_zero(d)
+  @dates.each do |date|
+    row, csv_row = get_row(date)
+    week_count = find_weeks_from_week_zero(date)
     puts "#{week_count}\t#{row}"
     csv_row.unshift(week_count)
     write_to_named_file(csv_row,output_filename)
@@ -259,5 +276,5 @@ def build_data_for_weeks_previous(number_of_weeks,positive_samples_file,negative
   end
   print_out_data(output_filename)
 end
-# build_data_for_weeks_previous(4,'pos_samples_180920','neg_plate_barcodes_180920','180920_wk_on_wk_4_test_1')
+# build_data_for_weeks_previous(4,'pos_samples_300920','neg_plate_barcodes_300920','300920_wk_on_wk_4')
 
