@@ -1,5 +1,6 @@
 def get_file(filename)
   data = CSV.read("/var/tmp/#{filename}.csv")
+  data.shift # remove header
   return data
 end
 
@@ -25,9 +26,7 @@ end
 
 def on_site_barcodes(positive_samples_file,negative_barcode_file)
   @pos_data = get_file(positive_samples_file)
-  @pos_data.shift # remove header
   @neg_data = get_file(negative_barcode_file)
-  @neg_data.pop # the last line of the file is centre,barcode,date_tested.. not sure why yet
   pos_barcodes = get_barcodes(@pos_data); nil
   neg_barcodes = get_barcodes(@neg_data); nil
   all_barcodes = []
@@ -41,22 +40,26 @@ def build_pos_hashes()
   $gla_pos_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $mk_pos_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $cb_pos_hash = Hash.new{|hsh,key| hsh[key] = [] }
+  $rx_pos_hash = Hash.new{|hsh,key| hsh[key] = [] }
   
   $centre_pos_hash = {'Alderley' => $ap_pos_hash,
                   'Cambridge-az' => $cb_pos_hash,
                   'Queen Elizabeth University Hospital' => $gla_pos_hash,
-                  'UK Biocentre' => $mk_pos_hash
+                  'UK Biocentre' => $mk_pos_hash,
+                  'Randox' => $rx_pos_hash
                   }
                   
   $ap_offsite_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $gla_offsite_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $mk_offsite_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $cb_offsite_hash = Hash.new{|hsh,key| hsh[key] = [] }
+  $rx_offsite_hash = Hash.new{|hsh,key| hsh[key] = [] }
 
   $centre_offsite_hash = {'Alderley' => $ap_offsite_hash,
                   'Cambridge-az' => $cb_offsite_hash,
                   'Queen Elizabeth University Hospital' => $gla_offsite_hash,
-                  'UK Biocentre' => $mk_offsite_hash
+                  'UK Biocentre' => $mk_offsite_hash,
+                  'Randox' => $rx_offsite_hash
                   }
   
   puts "build_pos_hashes"
@@ -64,8 +67,8 @@ def build_pos_hashes()
   @pos_data.each do |centre, barcode, sample_id, result, dtime|
     print "\r#{c}"
     tested_date = dtime.to_date.strftime('%d/%m/%Y')
-    $centre_offsite_hash[centre][tested_date] << [barcode,sample_id] # store offsite 'tested at' date
     scanned_in_date = $on_site_hash[barcode] # scanned in date
+    $centre_offsite_hash[centre][tested_date] << [barcode,sample_id] # store offsite 'tested at' date
     if scanned_in_date.nil?
       c -=1
       next
@@ -81,12 +84,15 @@ def build_neg_hash()
   $gla_neg_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $mk_neg_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $cb_neg_hash = Hash.new{|hsh,key| hsh[key] = [] }
+  $rx_neg_hash = Hash.new{|hsh,key| hsh[key] = [] }
   
   $centre_neg_hash = {'Alderley' => $ap_neg_hash,
                       'Cambridge-az' => $cb_neg_hash,
                       'Queen Elizabeth University Hospital' => $gla_neg_hash,
-                      'UK Biocentre' => $mk_neg_hash
+                      'UK Biocentre' => $mk_neg_hash,
+                      'Randox' => $rx_neg_hash
                       }
+                      
   puts "build_neg_hash"
 
   c = @neg_data.size
@@ -204,7 +210,7 @@ def get_row(date)
 end
 
 def build_header()
-  $centre_abr = {'Alderley' => 'AP', 'Cambridge-az' => 'CB', 'Queen Elizabeth University Hospital' => 'GW', 'UK Biocentre' => 'MK'}
+  $centre_abr = {'Alderley' => 'AP', 'Cambridge-az' => 'CB', 'Queen Elizabeth University Hospital' => 'GW', 'UK Biocentre' => 'MK', 'Randox' => 'RX'}
   header = "\t"; sub_header = "Week number\tWeek\t"
   csv_header = [nil,nil]; csv_sub_header = ["Week number","Week beginning"]
   labels = ['neg plates','pos plates','samples','avg','samples tested','avg samples tested']
@@ -259,11 +265,13 @@ def build_data_for_weeks_previous(number_of_weeks,positive_samples_file,negative
   $gla_date_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $mk_date_hash = Hash.new{|hsh,key| hsh[key] = [] }
   $cb_date_hash = Hash.new{|hsh,key| hsh[key] = [] }
+  $rx_date_hash = Hash.new{|hsh,key| hsh[key] = [] }
   
   $centre_date_hash = {'Alderley' => $ap_date_hash,
                  'UK Biocentre' => $mk_date_hash,
                  'Queen Elizabeth University Hospital' => $gla_date_hash,
-                 'Cambridge-az' => $cb_date_hash
+                 'Cambridge-az' => $cb_date_hash,
+                 'Randox' => $rx_date_hash
                 }
   @dates=[]
   c=0
@@ -276,5 +284,4 @@ def build_data_for_weeks_previous(number_of_weeks,positive_samples_file,negative
   end
   print_out_data(output_filename)
 end
-# build_data_for_weeks_previous(4,'pos_samples_300920','neg_plate_barcodes_300920','300920_wk_on_wk_4')
-
+# build_data_for_weeks_previous(4,'pos_samples_090221','neg_plate_barcodes_090221','090221_wk_on_wk_4')
